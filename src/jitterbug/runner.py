@@ -145,14 +145,23 @@ class CallRunner:
     def warmup(self) -> None:
         """Load speech models before timing anything, so the first call isn't
         charged for model loading."""
-        engines = [self.agent_factory().stt, self.caller_stt]
+        engines = [getattr(self.agent_factory(), "stt", None), self.caller_stt]
         for engine in engines:
             if engine is not None and hasattr(engine, "warmup"):
                 engine.warmup()
 
     def run(self, scenario: Scenario, profile: NetworkProfile, seed: int = 0) -> CallResult:
-        call_id = uuid.uuid4().hex[:12]
         agent = self.agent_factory()
+        try:
+            return self._call(agent, scenario, profile, seed)
+        finally:
+            # Agents that hold resources (a running Pipecat pipeline) hang up here.
+            close = getattr(agent, "close", None)
+            if close is not None:
+                close()
+
+    def _call(self, agent, scenario: Scenario, profile: NetworkProfile, seed: int) -> CallResult:
+        call_id = uuid.uuid4().hex[:12]
         tts = self.caller_tts(scenario.caller_voice)
         audio_dir = self.audio_root / call_id if self.audio_root else None
 

@@ -51,8 +51,15 @@ class FakeSTT:
     def __init__(self, speech: FakeSpeech) -> None:
         self.speech = speech
 
+    # Pipecat's segmented STT appends 0.5 s of silence to each segment.
+    PADDINGS = (0, 8000)
+
     def transcribe(self, audio: np.ndarray) -> str:
-        pieces = self._find_pieces(len(audio))
+        pieces: list[int] = []
+        for pad in self.PADDINGS:
+            pieces = self._find_pieces(len(audio) - pad)
+            if pieces:
+                break
         expected_rms = 0.5 / np.sqrt(2)
         kept, offset = [], 0
         for n in pieces:

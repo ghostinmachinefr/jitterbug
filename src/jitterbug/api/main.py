@@ -35,16 +35,28 @@ def get_db(request: Request) -> Iterator[Session]:
 DB = Annotated[Session, Depends(get_db)]
 
 
-def default_runner() -> CallRunner:
-    """Real engines: Whisper speech-to-text, macOS voices, DNSMOS scoring."""
+def default_runner(agent: str = "cascade") -> CallRunner:
+    """Real engines: Whisper speech-to-text, macOS voices, DNSMOS scoring.
+
+    agent="cascade" tests the built-in agent; agent="pipecat" tests the same
+    bot built as a real Pipecat pipeline (needs `uv sync --extra pipecat`).
+    """
     from jitterbug.agent import CascadeAgent
     from jitterbug.scoring.quality import DNSMOS
     from jitterbug.speech import MacSayTTS, WhisperSTT
 
     stt = WhisperSTT("base.en")
     agent_tts = MacSayTTS("Samantha")
+    if agent == "pipecat":
+        from jitterbug.integrations.pipecat import booking_agent_factory
+
+        agent_factory = booking_agent_factory(stt, agent_tts)
+    elif agent == "cascade":
+        agent_factory = lambda: CascadeAgent(stt, agent_tts)  # noqa: E731
+    else:
+        raise ValueError(f"unknown agent '{agent}' (use 'cascade' or 'pipecat')")
     return CallRunner(
-        agent_factory=lambda: CascadeAgent(stt, agent_tts),
+        agent_factory=agent_factory,
         caller_tts=lambda voice: MacSayTTS(voice),
         caller_stt=stt,
         quality=DNSMOS(),

@@ -209,6 +209,121 @@ def transmit(
     return received.astype(np.float32), stats
 
 
+class StreamImpairer:
+    """The same network model as `transmit`, for live audio that arrives in
+    chunks (for example 10 or 20 ms frames inside a Pipecat pipeline).
+
+    The stream is cut into 20 ms packets by sample position, so the result
+    doesn't depend on how the audio was chunked: feeding 10 ms or 1 s at a
+    time drops exactly the same packets. Each chunk comes back the same length
+    it went in, so it can replace the original audio in place.
+
+    Decisions per packet, in order: lost? (Gilbert-Elliott), and if it
+    arrived, too late for the jitter buffer? Missing packets are concealed by
+    repeating the last good packet at falling volume, as in `conceal`.
+
+    It is statistically the same model as `transmit` but not bit-for-bit (it
+    draws random numbers packet by packet), so seeded `transmit` results stay
+    exactly as they were.
+    """
+
+    def __init__(
+        self, profile: NetworkProfile, seed: int = 0, sample_rate: int = SAMPLE_RATE
+    ) -> None:
+        self.profile = profile
+        self.sample_rate = sample_rate
+        self.frame_len = sample_rate * FRAME_MS // 1000
+        self._rng = np.random.default_rng(seed)
+        loss = profile.loss_pct / 100.0
+        self._r = 1.0 / profile.burst_len  # chance of leaving a loss burst
+        self._p = min(loss * self._r / (1.0 - loss), 1.0) if loss else 0.0  # chance of entering
+        self._bad: bool | None = None  # Gilbert-Elliott state, set on the first packet
+        self._pos = 0  # samples seen so far
+        self._packet_missing = False
+        self._packet = np.zeros(self.frame_len, dtype=np.float32)  # current packet, as sent
+        self._last_good = np.zeros(self.frame_len, dtype=np.float32)
+        self._run = 0  # missing packets in a row
+        self._missing_log: list[bool] = []
+        self._lost = self._late = 0
+        self._lowpass = None
+        if profile.codec == "narrowband" and sample_rate > 8000:
+            from scipy.signal import butter, sosfilt_zi
+
+            # A phone line carries roughly 300-3400 Hz.
+            self._lowpass = butter(8, 3400, btype="low", fs=sample_rate, output="sos")
+            self._zi = sosfilt_zi(self._lowpass) * 0.0
+
+    def process(self, chunk: np.ndarray) -> np.ndarray:
+        """Impair one chunk of mono float32 audio and return what the listener hears."""
+        x = np.asarray(chunk, dtype=np.float32)
+        if self.profile.codec == "narrowband":
+            x = self._phone_channel(x)
+        if self.profile.loss_pct == 0 and self.profile.jitter_ms == 0:
+            self._count_packets(len(x))
+            return x
+        out = np.empty_like(x)
+        i = 0
+        while i < len(x):
+            offset = self._pos % self.frame_len
+            if offset == 0:
+                self._start_packet()
+            n = min(self.frame_len - offset, len(x) - i)
+            seg = x[i : i + n]
+            self._packet[offset : offset + n] = seg
+            if self._packet_missing:
+                gain = 0.5**self._run if self._run <= 3 else 0.0
+                out[i : i + n] = self._last_good[offset : offset + n] * gain
+            else:
+                out[i : i + n] = seg
+            i += n
+            self._pos += n
+            if self._pos % self.frame_len == 0 and not self._packet_missing:
+                self._last_good = self._packet.copy()
+        return out
+
+    def _start_packet(self) -> None:
+        if self._bad is None:
+            self._bad = self._rng.random() < self.profile.loss_pct / 100.0
+        else:
+            draw = self._rng.random()
+            self._bad = draw >= self._r if self._bad else draw < self._p
+        lost = bool(self._bad)
+        late = False
+        if not lost and self.profile.jitter_ms > 0:
+            late = bool(self._rng.exponential(self.profile.jitter_ms) > self.profile.buffer_ms)
+        self._packet_missing = lost or late
+        self._lost += lost
+        self._late += late
+        self._run = self._run + 1 if self._packet_missing else 0
+        self._missing_log.append(self._packet_missing)
+
+    def _count_packets(self, n: int) -> None:
+        """Clean stream: no decisions to make, just count packets for the stats."""
+        before = -(-self._pos // self.frame_len)
+        self._pos += n
+        after = -(-self._pos // self.frame_len)
+        self._missing_log.extend([False] * (after - before))
+
+    def _phone_channel(self, x: np.ndarray) -> np.ndarray:
+        """Band-limit like a phone line (state carried across chunks), then
+        quantise to 8-bit mu-law, as G.711 does."""
+        if self._lowpass is not None:
+            from scipy.signal import sosfilt
+
+            x, self._zi = sosfilt(self._lowpass, x, zi=self._zi)
+        return mulaw_decode(mulaw_encode(x.astype(np.float32)))
+
+    @property
+    def stats(self) -> TransmitStats:
+        return TransmitStats(
+            packets_sent=len(self._missing_log),
+            packets_lost=self._lost,
+            packets_late=self._late,
+            longest_gap=_longest_run(np.array(self._missing_log, dtype=bool)),
+            delay_ms=float(self.profile.latency_ms + self.profile.buffer_ms),
+        )
+
+
 def _longest_run(mask: np.ndarray) -> int:
     best = run = 0
     for m in mask:

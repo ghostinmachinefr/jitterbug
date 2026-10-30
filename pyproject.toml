@@ -25,6 +25,8 @@ models = [
     "matplotlib>=3.8",
 ]
 postgres = ["psycopg[binary]>=3.1"]
+# Test real Pipecat agents (and use the network emulator inside Pipecat pipelines).
+pipecat = ["pipecat-ai>=1.15"]
 
 [project.scripts]
 jitterbug = "jitterbug.cli:main"

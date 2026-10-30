@@ -15,8 +15,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      # Core + dev only: tests use fake speech engines, so no model downloads.
-      - run: uv sync --group dev
+      # Tests use fake speech engines, so no model downloads (Pipecat itself is small).
+      - run: uv sync --group dev --extra pipecat
       - run: uv run ruff check src tests scripts
       - run: uv run ruff format --check src tests scripts
       - run: uv run pytest -q

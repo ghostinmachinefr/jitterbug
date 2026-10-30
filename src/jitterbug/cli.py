@@ -2,6 +2,7 @@
 
 jitterbug sweep restaurant_booking --preset loss_sweep --seeds 3
 jitterbug sweep scenarios/my_test.yaml --preset presets
+jitterbug sweep restaurant_booking --agent pipecat
 jitterbug serve
 """
 
@@ -34,7 +35,9 @@ def cmd_sweep(args: argparse.Namespace) -> None:
     profiles = loss_sweep() if args.preset == "loss_sweep" else list(PRESETS.values())
     out_dir = Path(args.out) / f"{datetime.now():%Y%m%d-%H%M%S}-{scenario.name}"
 
-    runner = default_runner()
+    if args.agent == "pipecat":
+        _quiet_pipecat_logs()
+    runner = default_runner(args.agent)
     runner.audio_root = out_dir / "audio" if args.save_audio else None
     total = 1 + sum(not p.is_clean for p in profiles) * args.seeds
     done = 0
@@ -49,7 +52,10 @@ def cmd_sweep(args: argparse.Namespace) -> None:
             flush=True,
         )
 
-    print(f"Running '{scenario.name}' under {len(profiles)} network profiles x {args.seeds} seeds")
+    print(
+        f"Agent: {args.agent}. Running '{scenario.name}' under {len(profiles)} "
+        f"network profiles x {args.seeds} seeds"
+    )
     results = run_sweep(runner, scenario, profiles, seeds=args.seeds, on_call=progress)
     rows = sweep_table(results)
     print()
@@ -61,6 +67,16 @@ def cmd_sweep(args: argparse.Namespace) -> None:
             rows, out_dir / "loss_chart.png", f"{scenario.name}: effect of packet loss"
         )
         print(f"Chart: {chart}")
+
+
+def _quiet_pipecat_logs() -> None:
+    """Pipecat logs every frame at DEBUG level; keep warnings and errors only."""
+    import sys
+
+    from loguru import logger
+
+    logger.remove()
+    logger.add(sys.stderr, level="WARNING")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -79,6 +95,12 @@ def main(argv: list[str] | None = None) -> None:
     sweep.add_argument("--seeds", type=int, default=1, help="repeats per profile")
     sweep.add_argument("--out", default="runs")
     sweep.add_argument("--save-audio", action="store_true")
+    sweep.add_argument(
+        "--agent",
+        choices=["cascade", "pipecat"],
+        default="cascade",
+        help="agent under test: built-in cascade, or the same bot as a Pipecat pipeline",
+    )
     sweep.set_defaults(func=cmd_sweep)
 
     serve = sub.add_parser("serve", help="start the HTTP API")
