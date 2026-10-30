@@ -1,0 +1,11 @@
+# Everything in one long sentence: a single burst of packet loss in the
+# wrong place can wipe out a detail the agent needs.
+name: booking_one_breath
+description: Caller gives party size, time and name in a single turn.
+caller_voice: Rishi
+turns:
+  - Hello, can I get a table for two at seven pm, the name is Sharma.
+expected:
+  party_size: "2"
+  time: "7:00 pm"
+  name: sharma

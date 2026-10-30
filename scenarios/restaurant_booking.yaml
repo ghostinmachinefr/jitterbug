@@ -1,0 +1,13 @@
+# A scripted caller. Each turn is spoken by the caller's TTS voice, sent
+# through the emulated network, and answered by the agent under test.
+name: restaurant_booking
+description: Caller books a table, giving one detail per turn.
+caller_voice: Rishi   # Indian English (macOS voice)
+turns:
+  - Hi, I'd like to book a table for four people please.
+  - At eight thirty pm tonight.
+  - The name is Kapoor.
+expected:
+  party_size: "4"
+  time: "8:30 pm"
+  name: kapoor
