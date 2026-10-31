@@ -26,6 +26,11 @@ def wait_for(client, run_id, timeout=20):
     raise TimeoutError(run)
 
 
+def test_home_opens_the_docs(client):
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 307 and resp.headers["location"] == "/docs"
+
+
 def test_health_and_catalogue(client):
     assert client.get("/health").json()["status"] == "ok"
     names = {s["name"] for s in client.get("/scenarios").json()}

@@ -1,0 +1,550 @@
+<title>Jitterbug Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~46rem) with full-width section bands;
+   a "signal strip" motif (20 ms packets) runs through the page. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --ink: #16202c;
+  --muted: #566475;
+  --line: #d9dfe7;
+  --accent: #2b59c3;
+  --accent-soft: #e5ecfb;
+  --ok: #2f8a5b;
+  --lost: #cf3f55;
+  --late: #c98a00;
+  --code-bg: #eef1f6;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #161d27; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2a3442;
+    --accent: #7ea2ff; --accent-soft: #1c2740; --ok: #4cc28a; --lost: #ff6b81; --late: #f2b63a;
+    --code-bg: #1b2330; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #161d27; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2a3442;
+  --accent: #7ea2ff; --accent-soft: #1c2740; --ok: #4cc28a; --lost: #ff6b81; --late: #f2b63a;
+  --code-bg: #1b2330; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step); line-height: 1.6;
+}
+.wrap {
+  max-width: 48rem; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.4rem, 1.6rem + 3.6vw, 3.6rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.5rem, 1.25rem + 1vw, 2rem); font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 1.2rem; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.stack { display: flex; flex-direction: column; gap: 1rem; }
+section { padding-block: 3rem; border-top: 1px solid var(--line); }
+section > .wrap { display: flex; flex-direction: column; gap: 1.25rem; }
+.lede { font-size: 1.15rem; color: var(--ink); max-width: 40rem; }
+.muted { color: var(--muted); }
+
+/* hero */
+header.hero { padding-block: 3.5rem 2.5rem; }
+header.hero .wrap { display: flex; flex-direction: column; gap: 1.25rem; }
+.strip-deco { display: flex; gap: 3px; height: 14px; }
+.strip-deco i { flex: 1; border-radius: 2px; background: var(--ok); opacity: 0.85; }
+.strip-deco i.l { background: var(--lost); }
+.strip-deco i.t { background: var(--late); }
+.toc { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.toc a {
+  font-size: 0.9rem; text-decoration: none; color: var(--ink);
+  border: 1px solid var(--line); background: var(--surface); padding: 0.3rem 0.7rem; border-radius: 999px;
+}
+.toc a:hover, .toc a:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+
+/* demo */
+.demo { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1.1rem; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; }
+.control { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.control label { font-size: 0.9rem; font-weight: 500; display: flex; justify-content: space-between; gap: 0.5rem; }
+.control output { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--accent); }
+.control small { color: var(--muted); font-size: 0.8rem; line-height: 1.35; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.packets { display: grid; grid-template-columns: repeat(25, 1fr); gap: 3px; }
+.packets i { aspect-ratio: 1; border-radius: 3px; background: var(--ok); max-width: 100%; }
+.packets i.lost { background: var(--lost); }
+.packets i.late { background: var(--late); }
+.legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.85rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: -0.1em; background: var(--ok); }
+.legend .lg-lost::before { background: var(--lost); }
+.legend .lg-late::before { background: var(--late); }
+.sentence { font-size: 1.25rem; line-height: 1.9; display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; }
+.sentence span { padding: 0 0.2rem; border-radius: 4px; }
+.sentence span.gone { color: var(--lost); text-decoration: line-through; text-decoration-thickness: 2px; background: color-mix(in srgb, var(--lost) 12%, transparent); }
+.readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+.readout div { display: flex; flex-direction: column; gap: 0.1rem; }
+.readout b { font-family: var(--font-mono); font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.readout span { font-size: 0.8rem; color: var(--muted); }
+.verdict { font-weight: 600; padding: 0.6rem 0.8rem; border-radius: 8px; background: var(--accent-soft); }
+.verdict.bad { background: color-mix(in srgb, var(--lost) 14%, transparent); }
+button {
+  font: inherit; font-size: 0.9rem; cursor: pointer; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.8rem;
+}
+button:hover, button:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+
+/* flow diagram */
+.flow { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+.flow .node {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 0.75rem 1rem;
+  display: flex; flex-direction: column; gap: 0.2rem; min-width: 0;
+}
+.flow .node.net { border-style: dashed; border-color: var(--late); background: color-mix(in srgb, var(--late) 8%, var(--surface)); }
+.flow .node.agent { border-color: var(--accent); }
+.flow .node b { font-family: var(--font-display); font-weight: 600; }
+.flow .node span { font-size: 0.88rem; color: var(--muted); }
+.flow .node code { font-size: 0.78rem; }
+.flow .arrow { text-align: center; color: var(--muted); font-family: var(--font-mono); font-size: 0.8rem; line-height: 1; }
+.agent-inner { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin-top: 0.4rem; }
+.agent-inner div { background: var(--accent-soft); border-radius: 6px; padding: 0.4rem; font-size: 0.82rem; text-align: center; }
+.outcome { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 0.5rem; }
+.pill { font-size: 0.82rem; padding: 0.35rem 0.6rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); text-align: center; }
+.pill.ok { border-color: var(--ok); color: var(--ok); }
+.pill.lost { border-color: var(--lost); color: var(--lost); }
+.pill.late { border-color: var(--late); color: var(--late); }
+.pill.acc { border-color: var(--accent); color: var(--accent); }
+
+/* build steps */
+ol.steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2.25rem; counter-reset: step; }
+ol.steps > li { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); gap: 0 1rem; counter-increment: step; }
+ol.steps > li::before {
+  content: counter(step); font-family: var(--font-display); font-weight: 800; font-size: 1.1rem;
+  width: 2.2rem; height: 2.2rem; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--surface);
+}
+.step-body { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.files { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.files code { font-size: 0.78rem; }
+ul.points { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+pre {
+  margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.85rem 1rem; overflow-x: auto; font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+pre .c { color: var(--muted); font-style: italic; }
+.bug {
+  border-left: 3px solid var(--lost); padding: 0.5rem 0.9rem; background: var(--surface);
+  border-radius: 0 8px 8px 0; font-size: 0.93rem; display: flex; flex-direction: column; gap: 0.2rem;
+}
+.bug strong { color: var(--lost); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; font-family: var(--font-mono); }
+
+/* commands */
+.cmds { display: flex; flex-direction: column; gap: 1rem; }
+.cmd { display: flex; flex-direction: column; gap: 0.4rem; }
+.cmd .row { display: flex; gap: 0.5rem; align-items: stretch; }
+.cmd pre { flex: 1; min-width: 0; }
+.cmd p { font-size: 0.93rem; }
+
+/* glossary */
+dl.gloss { display: grid; grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr); gap: 0.6rem 1.25rem; margin: 0; }
+dl.gloss dt { font-weight: 600; }
+dl.gloss dd { margin: 0; color: var(--muted); }
+@media (max-width: 34rem) {
+  dl.gloss { grid-template-columns: 1fr; gap: 0.15rem; }
+  dl.gloss dd { margin-bottom: 0.6rem; }
+  .packets { grid-template-columns: repeat(20, 1fr); }
+}
+
+/* milestones */
+.ms { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; }
+.ms div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.ms .eyebrow { color: var(--accent); }
+.ms p { font-size: 0.92rem; }
+.ms .done { font-size: 0.85rem; color: var(--muted); }
+
+footer { padding-block: 2.5rem 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="strip-deco" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i class="l"></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="t"></i><i></i><i></i><i></i><i class="l"></i><i class="l"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <span class="eyebrow">Jitterbug · how it works and how we built it</span>
+    <h1>Jitterbug, explained</h1>
+    <p class="lede">Jitterbug makes fake phone calls to a voice AI agent over a deliberately bad network. Then it checks three things: did the agent hear the caller, did it get the job done, and if not, was that the network's fault or the AI's?</p>
+    <p class="muted">Each strip of little squares on this page is 20 milliseconds of a voice call. Green squares arrived, red ones were lost on the way, and amber ones arrived too late to be played.</p>
+    <nav class="toc" aria-label="Sections">
+      <a href="#demo">Try packet loss</a>
+      <a href="#call">One test call</a>
+      <a href="#build">How we built it</a>
+      <a href="#run">Run and test it</a>
+      <a href="#words">Words</a>
+      <a href="#yourself">Build it yourself</a>
+    </nav>
+  </div>
+</header>
+
+<section id="demo">
+  <div class="wrap">
+    <span class="eyebrow">The core idea, live</span>
+    <h2>What packet loss does to a sentence</h2>
+    <p>On a call, your voice is cut into 20 ms packets and sent over the internet. Move the sliders to damage the network and see which words of the caller's sentence the agent never receives. This uses the same formulas as <code>network.py</code>.</p>
+    <div class="demo">
+      <div class="controls">
+        <div class="control">
+          <label for="loss">Packet loss <output id="lossOut">6%</output></label>
+          <input id="loss" type="range" min="0" max="40" step="1" value="6">
+          <small>Share of packets the network drops.</small>
+        </div>
+        <div class="control">
+          <label for="burst">Burst length <output id="burstOut">3</output></label>
+          <input id="burst" type="range" min="1" max="10" step="0.5" value="3">
+          <small>1 = losses spread out. Higher = losses come in clumps, like Wi-Fi or 4G.</small>
+        </div>
+        <div class="control">
+          <label for="jitter">Jitter <output id="jitterOut">50 ms</output></label>
+          <input id="jitter" type="range" min="0" max="150" step="5" value="50">
+          <small>Random extra delay per packet. Packets later than the buffer are thrown away.</small>
+        </div>
+      </div>
+      <div class="packets" id="packets" aria-label="100 packets, 2 seconds of audio"></div>
+      <div class="legend"><span>arrived</span><span class="lg-lost">lost by the network</span><span class="lg-late">arrived too late</span></div>
+      <p class="sentence" id="sentence" aria-live="polite"></p>
+      <div class="readout">
+        <div><b id="effOut">0%</b><span>packets missing</span></div>
+        <div><b id="gapOut">0 ms</b><span>longest silence gap</span></div>
+        <div><b id="bufOut">0 ms</b><span>jitter buffer (3 × jitter + 20)</span></div>
+        <div><b id="werOut">0%</b><span>words lost (like WER)</span></div>
+      </div>
+      <p class="verdict" id="verdict"></p>
+      <div><button id="reroll" type="button">Try another random call</button></div>
+    </div>
+    <p class="muted">This is the project's main finding in miniature. Word error rate can stay low while the one word that matters, like "four" or the caller's name, disappears, and the booking fails.</p>
+  </div>
+</section>
+
+<section id="call">
+  <div class="wrap">
+    <span class="eyebrow">The whole system</span>
+    <h2>One test call, start to finish</h2>
+    <p>Every call is played turn by turn. This repeats for each line the caller says.</p>
+    <div class="flow">
+      <div class="node"><b>1 · Scenario</b><span>A YAML file: what the caller says, and what the booking must end up as.</span><code>scenarios/restaurant_booking.yaml</code></div>
+      <div class="arrow">↓</div>
+      <div class="node"><b>2 · Caller speaks</b><span>A macOS voice (Rishi, Indian English) reads the line aloud as audio.</span><code>speech.py · MacSayTTS</code></div>
+      <div class="arrow">↓ audio</div>
+      <div class="node net"><b>3 · Bad network (uplink)</b><span>Audio is cut into 20 ms packets. Some are lost, some arrive late, gaps get patched.</span><code>network.py · transmit()</code></div>
+      <div class="arrow">↓ damaged audio</div>
+      <div class="node agent"><b>4 · The voice agent under test</b><span>Either the built-in agent or the same bot running as a real Pipecat pipeline.</span>
+        <div class="agent-inner"><div>Speech-to-text<br><small>Whisper</small></div><div>Brain<br><small>booking rules</small></div><div>Text-to-speech<br><small>Samantha</small></div></div>
+        <code>agent.py · integrations/pipecat.py</code></div>
+      <div class="arrow">↓ reply audio</div>
+      <div class="node net"><b>5 · Bad network (downlink)</b><span>The reply is damaged on its way back to the caller.</span></div>
+      <div class="arrow">↓</div>
+      <div class="node"><b>6 · Score the turn</b><span>What did the agent hear (WER)? How good did the audio sound (DNSMOS)? How long until the reply started (latency)?</span><code>scoring/wer.py · scoring/quality.py · runner.py</code></div>
+      <div class="arrow">↓ after the last turn</div>
+      <div class="node"><b>7 · Verdict</b><span>Compare with the same call on a clean network, then decide who is to blame.</span><code>diagnosis.py</code>
+        <div class="outcome" style="margin-top:0.5rem">
+          <span class="pill ok">pass</span><span class="pill lost">network fault</span><span class="pill acc">agent fault</span><span class="pill late">too slow</span>
+        </div>
+      </div>
+    </div>
+    <p class="muted">The trick in step 7 is the <strong>clean baseline</strong>. If the call works on a perfect network but fails on a bad one, the network caused it. If it fails on both, the agent itself is the problem.</p>
+  </div>
+</section>
+
+<section id="build">
+  <div class="wrap">
+    <span class="eyebrow">In the order it happened</span>
+    <h2>How we built it, step by step</h2>
+    <p>Each step solved one problem and was tested before the next one started. The red notes are real bugs we hit along the way. They make good interview stories.</p>
+    <ol class="steps">
+      <li><div class="step-body">
+        <h3>Set up a Python project</h3>
+        <div class="files"><code>pyproject.toml</code><code>src/jitterbug/</code><code>.gitignore</code></div>
+        <p>We used <strong>uv</strong>, a fast Python package manager, to install Python 3.12 and make a virtual environment (<code>.venv</code>), a private folder of libraries just for this project. <code>pyproject.toml</code> lists the libraries. Heavy speech models are an optional "extra", so tests never need them.</p>
+<pre><code>uv python install 3.12
+uv venv --python 3.12
+uv sync --extra models     <span class="c"># numpy, fastapi, faster-whisper, onnxruntime...</span></code></pre>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Fake a bad network</h3>
+        <div class="files"><code>network.py</code><code>tests/test_network.py</code></div>
+        <ul class="points">
+          <li>Audio is a list of numbers (16,000 per second). We cut it into <strong>20 ms packets</strong> of 320 numbers each, like a real call.</li>
+          <li><strong>Packet loss</strong> uses the Gilbert-Elliott model. The network flips between a Good state and a Bad state, so losses come in bursts.</li>
+          <li><strong>Jitter</strong> gives every packet a random delay. The jitter buffer waits a set time, and late packets are dropped.</li>
+          <li><strong>Concealment</strong> fills a gap by repeating the last good packet at half volume, then silence. <strong>G.711</strong> squeezes audio like an old phone line.</li>
+        </ul>
+<pre><code><span class="c"># average burst B, loss rate L  →  r = 1/B,  p = L·r / (1−L)</span>
+r = 1.0 / burst_len                  <span class="c"># chance of leaving the Bad state</span>
+p = loss * r / (1.0 - loss)          <span class="c"># chance of entering it</span>
+bad = rng.random() &lt; loss
+for i in range(n):
+    lost[i] = bad
+    bad = draws[i] &gt;= r if bad else draws[i] &lt; p</code></pre>
+        <div class="bug"><strong>Bug</strong>The first jitter buffer was a fixed 60 ms, so a "3% loss" Wi-Fi profile actually lost 12%. Real receivers (WebRTC's NetEQ) size the buffer to the jitter, so we made it adaptive: 3 × jitter + 20 ms.</div>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Score what the agent heard</h3>
+        <div class="files"><code>scoring/wer.py</code><code>scoring/quality.py</code></div>
+        <ul class="points">
+          <li><strong>WER</strong> (word error rate) = wrong + missing + extra words, divided by the words actually said. Before comparing, we normalise text so "4 p.m." equals "four pm".</li>
+          <li><strong>DNSMOS</strong> is a small Microsoft model that predicts a 1–5 "how good does this sound" score from the audio alone, with no clean copy needed.</li>
+        </ul>
+        <div class="bug"><strong>Bug</strong>Whisper wrote "7pm" (no space) and "830 PM" (no colon), and the booking logic missed the time. The text normaliser now splits digits from letters and reads 830 pm as 8:30 pm.</div>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Build an agent to test</h3>
+        <div class="files"><code>speech.py</code><code>agent.py</code><code>scenarios/*.yaml</code></div>
+        <p>A voice agent is a loop: <strong>speech-to-text → brain → text-to-speech</strong>. We used local Whisper as the ears and macOS voices as the mouth. The brain is a simple restaurant-booking assistant that collects party size, time and name. We used rules instead of an LLM on purpose: the brain always answers the same way, so if a call fails it's because of what the agent <em>heard</em>.</p>
+<pre><code>def handle(self, audio):
+    heard = self.stt.transcribe(audio)       <span class="c"># ears</span>
+    reply = self.brain.reply(heard)          <span class="c"># brain</span>
+    reply_audio, first_ms = self._speak(reply)  <span class="c"># mouth, sentence by sentence</span>
+    return AgentTurn(heard, reply, reply_audio, timings)</code></pre>
+        <div class="bug"><strong>Bug</strong>The "Aman" macOS voice spoke gibberish at the start of sentences, even on a perfect network. We were measuring a broken voice, not the network, so we switched to "Rishi".</div>
+        <div class="bug"><strong>Bug</strong>The first call took 17 seconds because Whisper was loading. We added a warm-up so loading time isn't counted as latency.</div>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Run calls and decide who's to blame</h3>
+        <div class="files"><code>runner.py</code><code>diagnosis.py</code></div>
+        <p>The runner plays the conversation turn by turn and records everything. The diagnosis compares each call with the same call on a clean network:</p>
+<pre><code>if call.task_success and fast_enough:      verdict = "pass"
+elif call.task_success:                    verdict = "latency"   <span class="c"># right but slow</span>
+elif baseline_also_failed:                 verdict = "agent"     <span class="c"># fails even on clean</span>
+elif some_turn_was_misheard:               verdict = "network"   <span class="c"># names the lost words</span></code></pre>
+        <p class="muted">Latency = 300 ms waiting for the caller to finish + network delay + speech-to-text + brain + time until the first sentence of the reply is spoken.</p>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Make it a backend service</h3>
+        <div class="files"><code>api/main.py</code><code>api/db.py</code><code>api/jobs.py</code><code>api/schemas.py</code></div>
+        <ul class="points">
+          <li><strong>FastAPI</strong> gives the web endpoints. <strong>Pydantic</strong> checks every request, so bad input gets a clear 422 error.</li>
+          <li><strong>SQLAlchemy</strong> stores runs and calls in SQLite, and the same code works on PostgreSQL.</li>
+          <li>A run can take minutes, so the API answers at once with <strong>202 Accepted</strong> and a run id. A background worker does the calls and saves each one as it finishes.</li>
+        </ul>
+<pre><code>@app.post("/runs", status_code=202)
+def create_run(body: RunCreate, request: Request, session: DB):
+    run = Run(id=uuid.uuid4().hex[:12], scenario=..., status="queued")
+    session.add(run); session.commit()
+    request.app.state.jobs.submit(run.id, scenario, profiles, body.seeds)
+    return run                      <span class="c"># client polls GET /runs/{id}</span></code></pre>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Add a command line and charts</h3>
+        <div class="files"><code>cli.py</code><code>report.py</code></div>
+        <p><code>jitterbug sweep</code> runs one scenario under many network conditions, prints a table, saves <code>results.json</code>, and draws the packet-loss chart that's in the README.</p>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Write tests and switch on CI</h3>
+        <div class="files"><code>tests/</code><code>tests/fakes.py</code><code>.github/workflows/ci.yml</code></div>
+        <p>Real speech models are slow and huge, so tests use <strong>fake engines</strong>. Each word becomes a short beep, and the fake "ears" drop any word whose beep the network destroyed. So tests still fail for the right reason (lost audio means lost words), and all 65 run in a few seconds. GitHub Actions runs them on every push.</p>
+        <div class="bug"><strong>Bug</strong>Saving results overwrote each call's network settings with just the profile's name. A test now checks that the full settings survive.</div>
+      </div></li>
+
+      <li><div class="step-body">
+        <h3>Plug into Pipecat</h3>
+        <div class="files"><code>integrations/pipecat.py</code><code>tests/test_pipecat.py</code><code>tests/test_stream.py</code></div>
+        <p><strong>Pipecat</strong> is a popular open-source framework for voice agents. A Pipecat bot is a <em>pipeline</em> of <em>processors</em> passing <em>frames</em> (chunks of audio, text, signals) along. We added:</p>
+        <ul class="points">
+          <li><strong>A drop-in network processor</strong> anyone can put into their own Pipecat bot to hear how it copes with a bad network.</li>
+          <li><strong>An adapter</strong> that runs a real Pipecat pipeline for each test call and watches every frame with an <em>observer</em> to collect transcript, reply, audio and timings.</li>
+        </ul>
+<pre><code>async def process_frame(self, frame, direction):
+    await super().process_frame(frame, direction)
+    if isinstance(frame, InputAudioRawFrame):   <span class="c"># the user's voice</span>
+        self._impair(frame, "uplink")            <span class="c"># damage it in place</span>
+    await self.push_frame(frame, direction)      <span class="c"># pass everything on</span></code></pre>
+        <div class="bug"><strong>Bug</strong>Two-sentence replies got cut after the first sentence. The Mac voice needs about 0.7 s per sentence, but Pipecat was told a reply is over after 0.2 s of quiet. Now the adapter waits for the "LLM response ended" signal, which Pipecat sends only after all of the reply's audio.</div>
+      </div></li>
+    </ol>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <span class="eyebrow">Hands on</span>
+    <h2>Run and test it yourself</h2>
+    <p>Open Terminal and start in the project folder. Each command is safe to run as often as you like.</p>
+    <div class="cmds">
+      <div class="cmd"><p><strong>Go to the project</strong></p><div class="row"><pre><code>cd ~/Desktop/jitterbug</code></pre><button type="button" data-copy>Copy</button></div></div>
+      <div class="cmd"><p><strong>Run all 72 tests</strong> (about 7 seconds, every one should pass)</p><div class="row"><pre><code>uv run pytest</code></pre><button type="button" data-copy>Copy</button></div></div>
+      <div class="cmd"><p><strong>Test calls under 6 network conditions</strong> (about 50 seconds)</p><div class="row"><pre><code>uv run jitterbug sweep restaurant_booking</code></pre><button type="button" data-copy>Copy</button></div></div>
+      <div class="cmd"><p><strong>Same, with the bot running as a Pipecat pipeline</strong></p><div class="row"><pre><code>uv run jitterbug sweep restaurant_booking --agent pipecat</code></pre><button type="button" data-copy>Copy</button></div></div>
+      <div class="cmd"><p><strong>Packet-loss sweep with a chart</strong> (0–20% loss, 3 calls each, about 3 minutes; the chart lands in <code>runs/</code>)</p><div class="row"><pre><code>uv run jitterbug sweep restaurant_booking --preset loss_sweep --seeds 3</code></pre><button type="button" data-copy>Copy</button></div></div>
+      <div class="cmd"><p><strong>Keep the audio</strong> so you can listen to what the agent heard on each turn</p><div class="row"><pre><code>uv run jitterbug sweep restaurant_booking --save-audio</code></pre><button type="button" data-copy>Copy</button></div></div>
+      <div class="cmd"><p><strong>The clickable front end.</strong> Start the API, then open <code>http://127.0.0.1:8000/docs</code> in your browser. FastAPI builds this page automatically. Click <em>POST /runs → Try it out</em>, paste the example below, press <em>Execute</em>, then use <em>GET /runs/{run_id}</em> with the id you get back.</p><div class="row"><pre><code>uv run jitterbug serve</code></pre><button type="button" data-copy>Copy</button></div>
+        <div class="row"><pre><code>{"scenario": "restaurant_booking", "profiles": ["phone_line", "mobile_4g_weak"], "seeds": 2}</code></pre><button type="button" data-copy>Copy</button></div></div>
+    </div>
+    <p class="muted">To read a failed call, open the newest <code>runs/…/results.json</code> and look for <code>"diagnosis"</code>. It says in plain words which turn failed and what was lost.</p>
+  </div>
+</section>
+
+<section id="words">
+  <div class="wrap">
+    <span class="eyebrow">Glossary</span>
+    <h2>Words you'll hear</h2>
+    <dl class="gloss">
+      <dt>Packet</dt><dd>A small chunk of call audio sent over the internet. Here, 20 ms each.</dd>
+      <dt>Packet loss</dt><dd>Packets that never arrive. Bursty loss (several in a row) hurts more than the same amount spread out.</dd>
+      <dt>Jitter</dt><dd>Packets arriving at uneven times. The receiver's <em>jitter buffer</em> waits a little to smooth it out, and drops packets that are too late.</dd>
+      <dt>Concealment</dt><dd>Patching a gap so it doesn't click, for example by repeating the last good sound quietly.</dd>
+      <dt>G.711 / mu-law</dt><dd>The classic phone-line codec: 8,000 samples per second, 8 bits each.</dd>
+      <dt>STT / TTS</dt><dd>Speech-to-text (the agent's ears) and text-to-speech (its mouth).</dd>
+      <dt>Whisper</dt><dd>OpenAI's speech-to-text model. We run it locally with faster-whisper.</dd>
+      <dt>WER</dt><dd>Word error rate: the share of words heard wrongly. 0% is perfect.</dd>
+      <dt>MOS / DNSMOS</dt><dd>Mean Opinion Score, 1 (bad) to 5 (excellent). DNSMOS predicts it from audio alone.</dd>
+      <dt>Latency</dt><dd>How long after the caller stops talking the agent starts replying. About 2 s and above feels broken.</dd>
+      <dt>Endpointing / VAD</dt><dd>Deciding the caller has finished speaking (voice activity detection).</dd>
+      <dt>Baseline</dt><dd>The same call on a perfect network, used to tell network faults from agent faults.</dd>
+      <dt>Seed</dt><dd>A starting number for the randomness, so the same settings always drop the same packets.</dd>
+      <dt>Pipecat frame</dt><dd>One message in a Pipecat pipeline: a bit of audio, some text, or a signal like "user stopped speaking".</dd>
+      <dt>202 Accepted</dt><dd>The HTTP answer for "got it, working on it in the background".</dd>
+      <dt>CI</dt><dd>Continuous integration: GitHub runs the tests automatically on every push.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="yourself">
+  <div class="wrap">
+    <span class="eyebrow">Learn it by doing</span>
+    <h2>Build it yourself, step by step</h2>
+    <p>The best way to own this project is to rebuild the core in a fresh folder, writing each piece yourself and comparing with the real code only when you're stuck. Each milestone is small and ends with a check.</p>
+    <div class="ms">
+      <div><span class="eyebrow">Milestone 1 · 1 hour</span><h3>Packets</h3><p>Load a WAV file with <code>soundfile</code>, cut it into 320-sample packets, and drop 10% at random. Save and listen.</p><p class="done">Done when you can hear the gaps.</p></div>
+      <div><span class="eyebrow">Milestone 2 · 2 hours</span><h3>Bursts and jitter</h3><p>Replace random loss with Gilbert-Elliott, then add jitter and a buffer. Write one pytest that checks the loss rate.</p><p class="done">Done when 10% loss measures 10% ± 1.</p></div>
+      <div><span class="eyebrow">Milestone 3 · 1 hour</span><h3>Ears and scores</h3><p>Transcribe clean and damaged audio with faster-whisper, then compute WER with <code>jiwer</code>.</p><p class="done">Done when WER rises as loss rises.</p></div>
+      <div><span class="eyebrow">Milestone 4 · 2 hours</span><h3>A 3-turn call</h3><p>Write the booking brain and a loop that plays three caller lines and checks the final booking.</p><p class="done">Done when a clean call passes and a 30% loss call fails.</p></div>
+      <div><span class="eyebrow">Milestone 5 · 2 hours</span><h3>An API</h3><p>Wrap it in FastAPI: <code>POST /runs</code> starts a run in the background and <code>GET /runs/{id}</code> shows results.</p><p class="done">Done when you can start a run from <code>/docs</code>.</p></div>
+      <div><span class="eyebrow">Milestone 6 · 2 hours</span><h3>Pipecat</h3><p>Write a FrameProcessor that drops packets from <code>InputAudioRawFrame</code>s, and test it with Pipecat's <code>run_test</code>.</p><p class="done">Done when the test shows damaged frames.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Jitterbug is open source: <a href="https://github.com/ghostinmachinefr/jitterbug">github.com/ghostinmachinefr/jitterbug</a>. Python 3.12 · FastAPI · SQLAlchemy · faster-whisper · DNSMOS · Pipecat · pytest.</div>
+</footer>
+
+<script>
+(() => {
+  const N = 100, FRAME_MS = 20;
+  const words = ["Hi,", "I'd", "like", "to", "book", "a", "table", "for", "four", "people", "please."];
+  // Word lengths in packets (about 2 s of speech in total), with short pauses.
+  const spans = [];
+  let pos = 2;
+  const lens = [6, 6, 6, 4, 7, 3, 8, 6, 9, 10, 10];
+  lens.forEach((len) => { spans.push([pos, pos + len]); pos += len + 2; });
+
+  let seed = 7;
+  const $ = (id) => document.getElementById(id);
+  const packetsEl = $("packets");
+  const cells = [];
+  for (let i = 0; i < N; i++) { const c = document.createElement("i"); packetsEl.appendChild(c); cells.push(c); }
+
+  function rng(s) { // small seeded generator (mulberry32)
+    return () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+
+  function simulate(lossPct, burst, jitter) {
+    const rand = rng(seed);
+    const L = lossPct / 100, r = 1 / burst, p = L ? Math.min(L * r / (1 - L), 1) : 0;
+    const buffer = jitter ? 3 * jitter + 20 : 0;
+    let bad = rand() < L;
+    const state = [];
+    for (let i = 0; i < N; i++) {
+      const lost = L > 0 && bad;
+      const draw = rand();
+      bad = bad ? draw >= r : draw < p;
+      let late = false;
+      if (!lost && jitter > 0) late = -Math.log(1 - rand()) * jitter > buffer; // exponential delay
+      state.push(lost ? "lost" : late ? "late" : "ok");
+    }
+    return { state, buffer };
+  }
+
+  function render() {
+    const loss = +$("loss").value, burst = +$("burst").value, jitter = +$("jitter").value;
+    $("lossOut").textContent = loss + "%";
+    $("burstOut").textContent = burst;
+    $("jitterOut").textContent = jitter + " ms";
+    const { state, buffer } = simulate(loss, burst, jitter);
+    let missing = 0, run = 0, longest = 0;
+    state.forEach((s, i) => {
+      cells[i].className = s === "ok" ? "" : s;
+      cells[i].title = `packet ${i + 1} (${i * FRAME_MS}–${(i + 1) * FRAME_MS} ms): ${s === "ok" ? "arrived" : s}`;
+      if (s !== "ok") { missing++; run++; longest = Math.max(longest, run); } else run = 0;
+    });
+    const sentence = $("sentence");
+    sentence.textContent = "";
+    let gone = 0, keyLost = [];
+    words.forEach((w, k) => {
+      const [a, b] = spans[k];
+      const miss = state.slice(a, b).filter((s) => s !== "ok").length;
+      const span = document.createElement("span");
+      span.textContent = w;
+      if (miss / (b - a) >= 0.4) { span.className = "gone"; gone++; if (k === 8) keyLost.push("four"); }
+      sentence.appendChild(span);
+    });
+    $("effOut").textContent = missing + "%";
+    $("gapOut").textContent = longest * FRAME_MS + " ms";
+    $("bufOut").textContent = buffer + " ms";
+    $("werOut").textContent = Math.round(100 * gone / words.length) + "%";
+    const v = $("verdict");
+    if (keyLost.length) {
+      v.textContent = `Booking fails: the agent never heard "four", so it doesn't know the party size. Only ${Math.round(100 * gone / words.length)}% of the words were lost.`;
+      v.className = "verdict bad";
+    } else if (gone) {
+      v.textContent = "Some words were lost, but not the party size, so this booking can still work.";
+      v.className = "verdict";
+    } else {
+      v.textContent = "Every word arrived. The agent hears the whole request.";
+      v.className = "verdict";
+    }
+  }
+
+  ["loss", "burst", "jitter"].forEach((id) => $(id).addEventListener("input", render));
+  $("reroll").addEventListener("click", () => { seed = (seed * 48271 + 11) % 2147483647; render(); });
+  render();
+
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.parentElement.querySelector("code");
+      const text = code.textContent;
+      const done = () => { btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy"), 1500); };
+      try {
+        navigator.clipboard.writeText(text).then(done, () => select(code));
+      } catch (e) { select(code); }
+    });
+  });
+  function select(el) {
+    const range = document.createRange(); range.selectNodeContents(el);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  }
+})();
+</script>

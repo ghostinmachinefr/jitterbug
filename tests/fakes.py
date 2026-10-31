@@ -35,8 +35,10 @@ class FakeTTS:
 
     def synthesize(self, text: str) -> np.ndarray:
         words = text.split()
-        # a unique tail length lets FakeSTT look the utterance up again
-        tail = 16 * next(self.speech._counter)
+        # a unique tail length lets FakeSTT look the utterance up again (steps
+        # of 2 keep lengths unique for thousands of clips, and even for the
+        # 2x resampling of the narrowband channel)
+        tail = 2 * next(self.speech._counter)
         n = len(words) * WORD_SAMPLES + tail
         t = np.arange(n) / 16_000
         audio = (0.5 * np.sin(2 * np.pi * 300 * t)).astype(np.float32)
@@ -75,6 +77,8 @@ class FakeSTT:
         """The audio may be several clips joined (agents speak sentence by
         sentence). Clips made one after another are adjacent in the registry,
         so look for a run of them whose lengths add up."""
+        if total in self.speech._registry:  # usually one clip
+            return [total]
         lengths = list(self.speech._registry)
         for start in range(len(lengths)):
             acc = 0

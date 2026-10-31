@@ -11,7 +11,7 @@ from jitterbug.runner import CallResult, sweep_table
 def print_table(rows: list[dict]) -> None:
     header = (
         f"{'profile':16} {'loss%':>6} {'jit ms':>6} {'calls':>5} {'task ok':>8} "
-        f"{'WER':>6} {'MOS':>5} {'p95 ms':>7}  verdicts"
+        f"{'WER':>6} {'MOS':>5} {'p95 ms':>7} {'repeats':>7}  verdicts"
     )
     print(header)
     print("-" * len(header))
@@ -21,7 +21,7 @@ def print_table(rows: list[dict]) -> None:
         print(
             f"{r['profile']:16} {r['loss_pct']:>6g} {r['jitter_ms']:>6g} {r['calls']:>5} "
             f"{r['task_success_pct']:>7.0f}% {r['mean_wer']:>6.2f} {mos:>5} "
-            f"{r['p95_latency_ms']:>7.0f}  {verdicts}"
+            f"{r['p95_latency_ms']:>7.0f} {r['mean_repeats']:>7.2f}  {verdicts}"
         )
 
 

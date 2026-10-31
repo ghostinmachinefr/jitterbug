@@ -10,6 +10,11 @@ For every turn we record what was said, what the agent heard (and the WER),
 what the agent replied, what the caller heard back, packet statistics in both
 directions, DNSMOS quality of the audio each side received, and the response
 latency the caller experienced.
+
+The caller behaves like a person: if the agent answers a line differently
+from how it answered on a clean network ("Sorry, I didn't catch that", or
+asking again for something the caller just said), the caller says the line
+again, up to `max_repeats` times. Each repeat crosses the network afresh.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from jitterbug.audio import duration_ms, save
 from jitterbug.network import NetworkProfile, transmit
 from jitterbug.scenarios import Scenario
 from jitterbug.scoring.quality import DNSMOS
-from jitterbug.scoring.wer import wer
+from jitterbug.scoring.wer import normalize, wer
 from jitterbug.speech import STT, TTS
 
 # Time a real agent waits after the caller stops talking before it decides the
@@ -36,6 +41,8 @@ ENDPOINTING_MS = 300.0
 # Replies slower than this feel broken to callers. Voice-agent testing guides
 # put a healthy end-to-end median around 1.5 s; we flag a p95 above 2 s.
 LATENCY_BUDGET_MS = 2000.0
+# How many times the caller says a line again when the agent didn't get it.
+MAX_REPEATS = 2
 
 
 @dataclass
@@ -53,6 +60,7 @@ class TurnResult:
     downlink_mos: float | None
     latency_ms: float
     timings_ms: dict[str, float]
+    attempt: int = 0  # 0 = first time the line was said, 1+ = caller repeating it
 
 
 @dataclass
@@ -91,6 +99,11 @@ class CallResult:
         return round(100 * bad / sent, 2) if sent else 0.0
 
     @property
+    def repeats(self) -> int:
+        """How many times the caller had to say a line again."""
+        return sum(t.attempt > 0 for t in self.turns)
+
+    @property
     def passed(self) -> bool:
         return self.verdict == "pass"
 
@@ -105,6 +118,7 @@ class CallResult:
             "mean_uplink_mos": self.mean_uplink_mos,
             "p95_latency_ms": self.p95_latency_ms,
             "effective_loss_pct": self.effective_loss_pct,
+            "repeats": self.repeats,
             "diagnosis": self.diagnosis,
         }
 
@@ -128,6 +142,7 @@ class CallRunner:
         caller_stt: STT | None = None,
         quality: DNSMOS | None = None,
         audio_root: str | Path | None = None,
+        max_repeats: int = MAX_REPEATS,
     ) -> None:
         """
         agent_factory: makes a fresh agent per call (agents keep conversation state).
@@ -135,12 +150,15 @@ class CallRunner:
         caller_stt:    if given, also measures how well the caller understood the agent.
         quality:       DNSMOS scorer; skipped when None or the model isn't downloaded.
         audio_root:    if given, saves what each side heard, for playback.
+        max_repeats:   times the caller says a line again when the agent didn't
+                       get it (needs a clean baseline to compare with; 0 = never).
         """
         self.agent_factory = agent_factory
         self.caller_tts = caller_tts
         self.caller_stt = caller_stt
         self.quality = quality if quality is not None and quality.available else None
         self.audio_root = Path(audio_root) if audio_root else None
+        self.max_repeats = max_repeats
 
     def warmup(self) -> None:
         """Load speech models before timing anything, so the first call isn't
@@ -150,58 +168,45 @@ class CallRunner:
             if engine is not None and hasattr(engine, "warmup"):
                 engine.warmup()
 
-    def run(self, scenario: Scenario, profile: NetworkProfile, seed: int = 0) -> CallResult:
+    def run(
+        self,
+        scenario: Scenario,
+        profile: NetworkProfile,
+        seed: int = 0,
+        baseline: CallResult | None = None,
+    ) -> CallResult:
+        """One call. With a clean `baseline` call, the caller knows how the agent
+        answers each line when it hears it properly, and repeats a line when the
+        agent answers differently."""
         agent = self.agent_factory()
         try:
-            return self._call(agent, scenario, profile, seed)
+            return self._call(agent, scenario, profile, seed, baseline)
         finally:
             # Agents that hold resources (a running Pipecat pipeline) hang up here.
             close = getattr(agent, "close", None)
             if close is not None:
                 close()
 
-    def _call(self, agent, scenario: Scenario, profile: NetworkProfile, seed: int) -> CallResult:
+    def _call(
+        self,
+        agent,
+        scenario: Scenario,
+        profile: NetworkProfile,
+        seed: int,
+        baseline: CallResult | None,
+    ) -> CallResult:
         call_id = uuid.uuid4().hex[:12]
         tts = self.caller_tts(scenario.caller_voice)
         audio_dir = self.audio_root / call_id if self.audio_root else None
 
         agent.greet()  # the greeting is not scored; it just starts the conversation
         turns: list[TurnResult] = []
+        clean_replies = _first_replies(baseline) if self.max_repeats else {}
         for i, line in enumerate(scenario.turns):
-            turn_seed = seed * 1000 + i * 2
-            said_audio = tts.synthesize(line)
-            up_audio, up_stats = transmit(said_audio, profile, seed=turn_seed)
-            reply = agent.handle(up_audio)
-            down_audio, down_stats = transmit(reply.reply_audio, profile, seed=turn_seed + 1)
-
-            heard_by_caller = self.caller_stt.transcribe(down_audio) if self.caller_stt else None
-            processing = sum(reply.timings_ms.values())
-            latency = ENDPOINTING_MS + up_stats.delay_ms + processing + down_stats.delay_ms
-
-            turns.append(
-                TurnResult(
-                    index=i,
-                    said=line,
-                    heard_by_agent=reply.heard,
-                    uplink_wer=round(wer(line, reply.heard), 3),
-                    agent_reply=reply.reply_text,
-                    heard_by_caller=heard_by_caller,
-                    downlink_wer=(
-                        round(wer(reply.reply_text, heard_by_caller), 3)
-                        if heard_by_caller is not None
-                        else None
-                    ),
-                    uplink=up_stats.to_dict(),
-                    downlink=down_stats.to_dict(),
-                    uplink_mos=self._mos(up_audio),
-                    downlink_mos=self._mos(down_audio),
-                    latency_ms=round(latency, 1),
-                    timings_ms=reply.timings_ms,
-                )
-            )
-            if audio_dir:
-                save(audio_dir / f"turn{i}_agent_heard.wav", up_audio)
-                save(audio_dir / f"turn{i}_caller_heard.wav", down_audio)
+            for attempt in range(self.max_repeats + 1):
+                turns.append(self._turn(agent, tts, line, i, attempt, profile, seed, audio_dir))
+                if agent.brain.done or not _agent_missed_it(turns[-1], clean_replies):
+                    break
             if agent.brain.done:
                 break
 
@@ -219,10 +224,71 @@ class CallRunner:
             audio_dir=str(audio_dir) if audio_dir else None,
         )
 
+    def _turn(
+        self,
+        agent,
+        tts: TTS,
+        line: str,
+        i: int,
+        attempt: int,
+        profile: NetworkProfile,
+        seed: int,
+        audio_dir: Path | None,
+    ) -> TurnResult:
+        # first attempts keep the original seeds, so earlier results reproduce
+        turn_seed = seed * 1000 + i * 2 + 100 * attempt
+        said_audio = tts.synthesize(line)
+        up_audio, up_stats = transmit(said_audio, profile, seed=turn_seed)
+        reply = agent.handle(up_audio)
+        down_audio, down_stats = transmit(reply.reply_audio, profile, seed=turn_seed + 1)
+
+        heard_by_caller = self.caller_stt.transcribe(down_audio) if self.caller_stt else None
+        processing = sum(reply.timings_ms.values())
+        latency = ENDPOINTING_MS + up_stats.delay_ms + processing + down_stats.delay_ms
+
+        if audio_dir:
+            tag = f"turn{i}" + (f"_repeat{attempt}" if attempt else "")
+            save(audio_dir / f"{tag}_agent_heard.wav", up_audio)
+            save(audio_dir / f"{tag}_caller_heard.wav", down_audio)
+        return TurnResult(
+            index=i,
+            said=line,
+            heard_by_agent=reply.heard,
+            uplink_wer=round(wer(line, reply.heard), 3),
+            agent_reply=reply.reply_text,
+            heard_by_caller=heard_by_caller,
+            downlink_wer=(
+                round(wer(reply.reply_text, heard_by_caller), 3)
+                if heard_by_caller is not None
+                else None
+            ),
+            uplink=up_stats.to_dict(),
+            downlink=down_stats.to_dict(),
+            uplink_mos=self._mos(up_audio),
+            downlink_mos=self._mos(down_audio),
+            latency_ms=round(latency, 1),
+            timings_ms=reply.timings_ms,
+            attempt=attempt,
+        )
+
     def _mos(self, audio: np.ndarray) -> float | None:
         if self.quality is None or duration_ms(audio) < 200:
             return None
         return round(self.quality.score(audio).ovrl, 2)
+
+
+def _first_replies(baseline: CallResult | None) -> dict[int, str]:
+    """How the agent answered each line on the clean network."""
+    if baseline is None:
+        return {}
+    return {t.index: normalize(t.agent_reply) for t in baseline.turns if t.attempt == 0}
+
+
+def _agent_missed_it(turn: TurnResult, clean_replies: dict[int, str]) -> bool:
+    """The agent answered this line differently than it did on a clean network,
+    so a caller would assume they weren't understood and say it again."""
+    expected = clean_replies.get(turn.index)
+    return expected is not None and normalize(turn.agent_reply) != expected
 
 
 def run_sweep(
@@ -246,7 +312,7 @@ def run_sweep(
         if profile.is_clean:
             continue
         for s in range(seeds):
-            call = runner.run(scenario, profile, seed=s)
+            call = runner.run(scenario, profile, seed=s, baseline=baseline)
             diagnose(call, baseline)
             results.append(call)
             if on_call:
@@ -273,6 +339,7 @@ def sweep_table(results: list[CallResult]) -> list[dict]:
                 "mean_wer": round(statistics.fmean(c.mean_uplink_wer for c in calls), 3),
                 "mean_mos": round(statistics.fmean(mos), 2) if mos else None,
                 "p95_latency_ms": max(c.p95_latency_ms for c in calls),
+                "mean_repeats": round(statistics.fmean(c.repeats for c in calls), 2),
                 "verdicts": {
                     v: sum(c.verdict == v for c in calls)
                     for v in sorted({c.verdict for c in calls})
@@ -290,4 +357,5 @@ __all__ = [
     "sweep_table",
     "ENDPOINTING_MS",
     "LATENCY_BUDGET_MS",
+    "MAX_REPEATS",
 ]

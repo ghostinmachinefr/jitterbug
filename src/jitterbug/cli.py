@@ -39,6 +39,7 @@ def cmd_sweep(args: argparse.Namespace) -> None:
         _quiet_pipecat_logs()
     runner = default_runner(args.agent)
     runner.audio_root = out_dir / "audio" if args.save_audio else None
+    runner.max_repeats = args.max_repeats
     total = 1 + sum(not p.is_clean for p in profiles) * args.seeds
     done = 0
     started = time.time()
@@ -48,7 +49,8 @@ def cmd_sweep(args: argparse.Namespace) -> None:
         done += 1
         print(
             f"[{done:>3}/{total}] {call.profile['name']:16} {call.verdict:8} "
-            f"WER {call.mean_uplink_wer:.2f}  {call.p95_latency_ms:.0f} ms",
+            f"WER {call.mean_uplink_wer:.2f}  {call.p95_latency_ms:.0f} ms  "
+            f"repeats {call.repeats}",
             flush=True,
         )
 
@@ -95,6 +97,12 @@ def main(argv: list[str] | None = None) -> None:
     sweep.add_argument("--seeds", type=int, default=1, help="repeats per profile")
     sweep.add_argument("--out", default="runs")
     sweep.add_argument("--save-audio", action="store_true")
+    sweep.add_argument(
+        "--max-repeats",
+        type=int,
+        default=2,
+        help="times the caller says a line again when the agent didn't get it (0 = never)",
+    )
     sweep.add_argument(
         "--agent",
         choices=["cascade", "pipecat"],

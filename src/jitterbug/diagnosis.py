@@ -16,7 +16,7 @@ on a clean network first. Then for a failed call:
 from __future__ import annotations
 
 from jitterbug.network import FRAME_MS
-from jitterbug.runner import LATENCY_BUDGET_MS, CallResult
+from jitterbug.runner import LATENCY_BUDGET_MS, CallResult, TurnResult
 
 MISHEARD_WER = 0.15  # a turn counts as misheard above this WER
 
@@ -33,7 +33,7 @@ def diagnose(call: CallResult, baseline: CallResult | None) -> CallResult:
         slow = max(worst.timings_ms, key=worst.timings_ms.get)
         call.verdict = "latency"
         call.diagnosis = (
-            f"Task done, but turn {worst.index + 1} took {worst.latency_ms:.0f} ms "
+            f"Task done, but {_label(worst)} took {worst.latency_ms:.0f} ms "
             f"(budget {LATENCY_BUDGET_MS:.0f} ms): {net:.0f} ms network delay, "
             f"{agent_ms:.0f} ms agent processing (slowest step: {slow.replace('_ms', '')})."
         )
@@ -54,11 +54,11 @@ def diagnose(call: CallResult, baseline: CallResult | None) -> CallResult:
         up = t.uplink
         call.verdict = "network"
         call.diagnosis = (
-            f'Turn {t.index + 1}: agent heard "{t.heard_by_agent}" instead of "{t.said}" '
+            f'{_label(t).capitalize()}: agent heard "{t.heard_by_agent}" instead of "{t.said}" '
             f"(WER {t.uplink_wer:.0%}). Uplink lost {up['effective_loss_pct']:.1f}% of packets "
             f"({up['packets_lost']} dropped, {up['packets_late']} late), longest gap "
             f"{up['longest_gap'] * FRAME_MS} ms. Same call passes on a clean network. "
-            f"Wrong or missing: {wrong}."
+            f"{_repeat_note(call)}Wrong or missing: {wrong}."
         )
         return call
 
@@ -69,6 +69,15 @@ def diagnose(call: CallResult, baseline: CallResult | None) -> CallResult:
         else f"No clean baseline to compare against. Wrong or missing: {wrong}."
     )
     return call
+
+
+def _label(t: TurnResult) -> str:
+    return f"turn {t.index + 1}" + (f" (repeat {t.attempt})" if t.attempt else "")
+
+
+def _repeat_note(call: CallResult) -> str:
+    n = call.repeats
+    return f"The caller repeated {n} line{'s' if n != 1 else ''}. " if n else ""
 
 
 def _wrong_slots(call: CallResult) -> str:
@@ -86,4 +95,6 @@ def _pass_note(call: CallResult) -> str:
         notes.append(f"MOS {call.mean_uplink_mos:.2f}")
     if call.mean_uplink_wer > 0:
         notes.append(f"WER {call.mean_uplink_wer:.0%} but task still done")
+    if call.repeats:
+        notes.append(f"caller repeated {call.repeats} line{'s' if call.repeats != 1 else ''}")
     return "Passed: " + ", ".join(notes) + "."

@@ -20,41 +20,48 @@ lot of AI failures get blamed on the network. Most voice-agent evaluations score
 the agent said*. Jitterbug controls *what the agent heard*, so you can see exactly where
 a conversation starts to break and why.
 
-## First result: the usual metrics say "fine" while the booking fails
+## First result: the usual metrics say "fine" while bookings fail
 
 A 3-turn restaurant booking (caller voice in Indian English, agent on local Whisper
 `base.en`), swept from 0% to 20% packet loss with bursty losses and 20 ms jitter,
-3 runs per level:
+**10 calls per level**. When the agent doesn't get a line, the caller says it again
+(up to twice), like a person would:
 
 ![Task success, WER and DNSMOS against packet loss](docs/loss_chart.png)
 
-| Packet loss | Task success | Mean WER | DNSMOS |
-|---:|---:|---:|---:|
-| 0–2% | 100% | 0.00 | 3.06–3.10 |
-| 5% | 67% | 0.02 | 3.03 |
-| 10% | 67% | 0.03 | 2.92 |
-| 15–20% | 33% | 0.07–0.08 | 2.76–2.85 |
+| Packet loss | Calls | Task success (caller repeats) | Task success (never repeats) | Mean WER | DNSMOS |
+|---:|---:|---:|---:|---:|---:|
+| 0–2% | 21 | 100% | 100% | 0.00 | 3.05–3.10 |
+| 5% | 10 | 100% | 90% | 0.02 | 3.03 |
+| 10% | 10 | 90% | 90% | 0.01 | 2.93 |
+| 15% | 10 | 70% | 70% | 0.05 | 2.83 |
+| 20% | 10 | 50% | 40% | 0.06 | 2.71 |
 
-- **Word error rate never passes 8%, and DNSMOS barely moves.** A dashboard of
-  average WER and MOS would call these calls healthy, yet two out of three bookings
-  fail. Average metrics miss that **one lost word can fail the whole task**.
-- **What gets lost is what matters.** Jitterbug's diagnoses point at single words:
-  - *"agent heard 'I'd like to book a table for people please'"*: a 160 ms gap erased
-    "four".
-  - *"agent heard 'The name is Kupur' / 'Papoor'"*: names are the most fragile detail,
-    because no context helps the speech-to-text guess them.
-- **Not every failure is the network.** At 5% loss, one call had the right booking but
-  a 2.6 s reply. Jitterbug blamed the agent's own processing (2.1 s), not the 160 ms of
-  network delay.
+- **Word error rate never passes 6%, and DNSMOS barely moves**, yet at 15–20% loss
+  about **4 in 10 bookings fail** (12 of 20 succeed; the 95% range is 39–78%). A
+  dashboard of average WER and MOS would call these calls healthy. It misses that
+  **one lost word can fail the whole task**.
+- **What gets lost is the name.** 8 of the 9 failed calls at 10–20% loss ended with
+  the wrong name: *"agent heard 'The name is Kupur' / 'Papu' / 'Kaput'"* instead of
+  Kapoor. Names are the most fragile detail, because no context helps the
+  speech-to-text guess them, and the bot still confirms the booking with the wrong name.
+- **Repeating helps with common words, not names.** The caller's repeat rescued a call
+  where a 160 ms gap erased "four" (*"a table for people please"*). Repeats made little
+  difference overall, because the bot treats the name as final once it has heard one.
+- **Not every failure is the network.** At 2% loss, one call had the right booking but
+  a 2.8 s reply. Jitterbug blamed the agent's own speech-to-text (2.3 s), not the
+  160 ms of network delay.
 
-These are first numbers from a small sample (3 runs per level, one scenario).
-`--seeds 10` and more scenarios give tighter numbers.
+These are first numbers from one scenario and 10 calls per level, so single rows are
+noisy (see the ranges above). `--seeds 30` and more scenarios give tighter numbers. An
+earlier run of 3 calls per level, where the caller never repeated, suggested 2 in 3
+bookings fail at 15–20% loss; 10 calls per level showed that was too pessimistic.
 
 ## How it works
 
 | Step | What happens |
 |---|---|
-| **Caller** | A scenario (YAML) lists what the caller says. Each line is spoken with a TTS voice. |
+| **Caller** | A scenario (YAML) lists what the caller says. Each line is spoken with a TTS voice. Like a real person, the caller **says a line again** (up to twice) when the agent didn't get it: when the agent answers it differently from how it answered on a clean network ("Sorry, I didn't catch that", or asking again for the party size). Each repeat crosses the network again with new random losses. |
 | **Network** | Audio is cut into 20 ms packets. Loss follows a **Gilbert-Elliott** model (bursty, like Wi-Fi and 4G). Each packet gets random **jitter**, and an adaptive jitter buffer drops packets that arrive too late. Gaps are filled by **packet loss concealment**. `narrowband` squeezes audio through an **8 kHz mu-law (G.711)** phone channel. Seeded, so every run is reproducible. |
 | **Agent under test** | Any `STT → brain → TTS` pipeline, either Jitterbug's built-in cascade or a real **Pipecat** pipeline (see below). The example bot uses local **Whisper** (faster-whisper) and a rule-based booking assistant, which is deterministic so failures come from what it *heard*. Replies are synthesised sentence by sentence, as streaming frameworks do. |
 | **Scoring** | **WER** of what the agent heard vs. what was said, both ways. **DNSMOS** (Microsoft's reference-free P.835 MOS model) on the audio each side received. **Latency** = endpointing + network delay + STT + brain + time to first TTS audio. **Task success** = did the agent end up with the right booking. |
@@ -69,7 +76,8 @@ Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/). The built-in voices use
 uv sync --extra models
 uv run python scripts/download_models.py          # DNSMOS model, 1.2 MB
 uv run jitterbug sweep restaurant_booking         # preset network profiles
-uv run jitterbug sweep restaurant_booking --preset loss_sweep --seeds 3   # + chart
+uv run jitterbug sweep restaurant_booking --preset loss_sweep --seeds 10  # + chart
+uv run jitterbug sweep restaurant_booking --preset loss_sweep --max-repeats 0  # caller never repeats
 ```
 
 ## Test your Pipecat agent
@@ -199,7 +207,7 @@ tests/            pytest suite with fake speech engines (no model downloads in C
 ## Testing
 
 ```bash
-uv run pytest            # 65 tests, about 5 s
+uv run pytest            # 72 tests, about 7 s
 uv run ruff check . && uv run ruff format --check .
 ```
 
@@ -219,6 +227,10 @@ Actions runs lint, formatting and tests on Python 3.11 and 3.12.
 - [ ] Mic-check web page: record 10 s from your mic, get a quality score from the same API
 
 ## Limits
+
+- The scripted caller repeats a line when the agent's answer differs from the clean call,
+  but it doesn't correct a wrong detail later ("No, four people, not two"), and it reacts
+  to what the agent *said*, not to what the caller heard through the downlink.
 
 - The emulator works on audio frames, not real sockets, so it doesn't model codec
   adaptation or retransmission yet.

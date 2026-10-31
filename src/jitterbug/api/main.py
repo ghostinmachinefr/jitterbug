@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -85,6 +85,11 @@ def create_app(
         "latency and task success, with a network-vs-agent root cause.",
         lifespan=lifespan,
     )
+
+    @app.get("/", include_in_schema=False)
+    def home() -> RedirectResponse:
+        """Opening the bare address shows the clickable API docs."""
+        return RedirectResponse("/docs")
 
     @app.get("/health")
     def health() -> dict:
